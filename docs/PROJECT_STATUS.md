@@ -24,7 +24,7 @@ Remote (origin): https://github.com/jumailtaj/trading_app.git
 | C     | DONE        | phase-c-hardening   | phase-c           | 6ae1f2b | 243 / 0           | Y        | 2026-09-25 |
 | D     | DONE        | phase-d-paper       | phase-d           | ee685a8 | 265 / 0           | Y        | 2026-09-25 |
 | E     | DONE        | phase-e-kite-broker | phase-e           | be8f318 | 280 / 0           | Y        | 2026-09-25 |
-| F     | DONE        | phase-f-safety      | phase-f           | pending | 295 / 0           | Y        | 2026-09-25 |
+| F     | DONE        | phase-f-safety      | phase-f           | 29421c1 | 295 / 0           | Y        | 2026-09-25 |
 | G     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
 | H     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
 
