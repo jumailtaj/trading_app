@@ -107,5 +107,47 @@ def load_csv(path: Union[str, pathlib.Path]) -> pd.DataFrame:
 
 
 def load_kite(kite_client: Any, symbol: str, from_date: Any, to_date: Any, interval: str = "5minute") -> pd.DataFrame:
-    """Placeholder for Kite Connect historical data fetching (deferred to Phase D/E)."""
-    raise NotImplementedError("Kite fetch is not available until Phase D")
+    """Fetch historical candle data from Kite Connect API and return validated DataFrame.
+    
+    Requirements:
+    - kite_client must provide historical_data(instrument_token/symbol, from_date, to_date, interval).
+    - Returns DataFrame validated by Backtester._prepare().
+    """
+    if kite_client is None:
+        raise NotImplementedError("Kite fetch is not available until Phase D")
+
+    try:
+        records = kite_client.historical_data(symbol, from_date, to_date, interval)
+    except Exception as exc:
+        raise DataLoadError(f"Kite Connect historical_data request failed: {exc}") from exc
+
+    if not records:
+        raise DataLoadError(f"No records returned by Kite Connect for {symbol}")
+
+    df = pd.DataFrame(records)
+    col_map: dict[str, str] = {}
+    for col in df.columns:
+        norm = str(col).strip().lower()
+        if norm in COLUMN_ALIASES:
+            col_map[col] = COLUMN_ALIASES[norm]
+        else:
+            col_map[col] = norm
+    df = df.rename(columns=col_map)
+
+    if "timestamp" in df.columns:
+        df.index = pd.to_datetime(df["timestamp"])
+        df = df.drop(columns=["timestamp"])
+    elif not isinstance(df.index, pd.DatetimeIndex):
+        raise DataLoadError("No timestamp/date column found in Kite Connect response")
+
+    if df.index.tz is None:
+        df.index = df.index.tz_localize(IST)
+    else:
+        df.index = df.index.tz_convert(IST)
+
+    try:
+        validated = Backtester._prepare(df)
+    except BacktestDataError as exc:
+        raise DataLoadError(f"Kite data failed validation: {exc}") from exc
+
+    return validated

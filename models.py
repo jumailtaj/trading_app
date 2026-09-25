@@ -86,7 +86,7 @@ LEGAL_ORDER_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
     OrderStatus.CREATED: frozenset({OrderStatus.SUBMITTED, OrderStatus.REJECTED}),
     OrderStatus.SUBMITTED: frozenset({
         OrderStatus.PENDING, OrderStatus.OPEN, OrderStatus.TRIGGER_PENDING,
-        OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.LAPSED,
+        OrderStatus.COMPLETE, OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.LAPSED,
     }),
     OrderStatus.PENDING: frozenset({
         OrderStatus.OPEN, OrderStatus.TRIGGER_PENDING, OrderStatus.REJECTED,
