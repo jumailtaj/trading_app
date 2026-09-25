@@ -11,8 +11,9 @@ Current branch: main
 Branches: main, phase-a-baseline
 Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1)
 Latest commit on main: 58e4ae1 feat(phase-a): baseline hygiene — B1/B10/B11 fixes, R1 guard, docs
-Working tree clean: N — one untracked file: docs/MASTER_PLAN.md (not yet staged or committed)
-Pushed to remote: N — no remote configured
+Working tree clean: Y
+Pushed to remote: N — remote now configured, nothing pushed yet
+Remote (origin): https://github.com/jumailtaj/trading_app.git
 
 ## Phase Completion Table
 
