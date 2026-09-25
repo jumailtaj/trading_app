@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import datetime, time
 from typing import Optional
 
 import numpy as np
@@ -95,7 +96,7 @@ class BacktestResult:
 
 class Backtester:
     def __init__(self, config: TradingConfig, strategy: Strategy, charges: Optional[ChargesConfig] = None,
-                 lookahead_check_samples: int = 25):
+                 lookahead_check_samples: int = 25, filter_hours: bool = True):
         """charges=None means the estimated Zerodha intraday rates; pass ChargesConfig.none() to switch charges off.
         lookahead_check_samples: how many candles to spot-check the strategy's whole-series signals against
         one-candle-at-a-time signals (0 disables the check)."""
@@ -103,10 +104,12 @@ class Backtester:
         self.strategy = strategy
         self.charges = charges if charges is not None else ChargesConfig()
         self.lookahead_check_samples = lookahead_check_samples
+        self.filter_hours = filter_hours
 
     # ------------------------------------------------------------------ data checks
     @staticmethod
-    def _prepare(data: pd.DataFrame) -> pd.DataFrame:
+    def _prepare(data: pd.DataFrame, config: Optional[TradingConfig] = None,
+                 filter_hours: bool = True) -> pd.DataFrame:
         if not isinstance(data, pd.DataFrame):
             raise BacktestDataError(f"candles must be a DataFrame, got {type(data).__name__}")
         missing = {"open", "high", "low", "close"} - set(data.columns)
@@ -118,6 +121,31 @@ class Backtester:
             raise BacktestDataError("candle index must be a timezone-aware DatetimeIndex (Kite data is IST)")
         if not (data.index.is_unique and data.index.is_monotonic_increasing):
             raise BacktestDataError("candle index must be unique and sorted oldest to newest")
+
+        idx_ist = data.index.tz_convert(IST)
+
+        if filter_hours:
+            in_hours = (idx_ist.time >= time(9, 15)) & (idx_ist.time < time(15, 30))
+            if not in_hours.any():
+                raise BacktestDataError("no candles within market hours (09:15-15:30 IST)")
+            if not in_hours.all():
+                data = data[in_hours]
+                idx_ist = idx_ist[in_hours]
+        else:
+            in_hours = (idx_ist.time >= time(9, 15)) & (idx_ist.time < time(15, 30))
+            if not in_hours.all():
+                raise BacktestDataError("candles outside market hours (09:15-15:30 IST) present")
+
+        if config is not None and len(data) > 1:
+            diffs = np.diff(idx_ist.asi8) // 1_000_000_000
+            if len(diffs) > 0:
+                modal_spacing = Counter(diffs).most_common(1)[0][0]
+                expected_secs = config.timeframe_minutes * 60
+                if modal_spacing != expected_secs:
+                    raise BacktestDataError(
+                        f"candle spacing mode is {modal_spacing}s, expected {expected_secs}s for timeframe '{config.timeframe}'"
+                    )
+
         ohlc = data[["open", "high", "low", "close"]].apply(pd.to_numeric, errors="coerce").astype(float)
         values = ohlc.to_numpy()
         if not np.isfinite(values).all() or not (values > 0).all():
@@ -128,7 +156,7 @@ class Backtester:
         out = ohlc.copy()
         if "volume" in data.columns:
             out["volume"] = data["volume"].to_numpy()
-        out.index = data.index.tz_convert(IST)
+        out.index = idx_ist
         return out
 
     def _check_no_lookahead(self, candles: pd.DataFrame, signals: pd.Series) -> None:
@@ -147,7 +175,7 @@ class Backtester:
     # ------------------------------------------------------------------ the run
     def run(self, data: pd.DataFrame) -> BacktestResult:
         cfg = self.config
-        candles = self._prepare(data)
+        candles = self._prepare(data, config=cfg, filter_hours=self.filter_hours)
         signals = self.strategy.generate_signals(candles)
         if len(signals) != len(candles):
             raise BacktestDataError("strategy returned the wrong number of signals")
@@ -166,7 +194,7 @@ class Backtester:
         realized_by_day: Counter = Counter()
         entries_by_day: Counter = Counter()
         skipped: Counter = Counter()
-        pending: Optional[Signal] = None
+        pending: Optional[tuple[Signal, datetime]] = None
 
         def realise(trade: Optional[Trade]) -> None:
             nonlocal realized_total
@@ -174,13 +202,18 @@ class Backtester:
                 realized_total += trade.pnl
                 realized_by_day[trade.exit_time.date()] += trade.pnl
 
+        timeframe_secs = cfg.timeframe_minutes * 60
+
         for i in range(n):
             t, d = times[i], days[i]
 
             # 1. execute the signal queued by the previous candle, at this candle's open
             if pending is not None:
-                sig, pending = pending, None
-                if sig is Signal.BUY:
+                sig, sig_time = pending
+                pending = None
+                if (t - sig_time).total_seconds() != timeframe_secs:
+                    skipped["GAP_SIGNAL_EXPIRED"] += 1
+                elif sig is Signal.BUY:
                     if broker.position is not None:
                         skipped["BUY_WHILE_LONG"] += 1
                     else:
@@ -219,7 +252,7 @@ class Backtester:
             sig = signals.iloc[i]
             if sig is not Signal.HOLD:
                 if i + 1 < n and days[i + 1] == d:
-                    pending = sig
+                    pending = (sig, t)
                 else:
                     skipped["NO_NEXT_CANDLE_TODAY"] += 1
 
