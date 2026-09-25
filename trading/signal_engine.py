@@ -39,6 +39,7 @@ class SignalEngine:
         mode: TradingMode = TradingMode.PAPER,
         max_poll_attempts: int = 5,
         enforce_singleton: bool = True,
+        reconciler: Optional[any] = None,
     ) -> None:
         if enforce_singleton:
             if SignalEngine._active_instance is not None and SignalEngine._active_instance is not self:
@@ -51,6 +52,7 @@ class SignalEngine:
         self.db = db
         self.mode = mode
         self.max_poll_attempts = max_poll_attempts
+        self.reconciler = reconciler
         self.risk_manager = RiskManager(config, db=db, mode=mode)
 
         self.candle_history: list[pd.Series] = []
@@ -59,12 +61,35 @@ class SignalEngine:
         self._seen_signal_ids: set[str] = set()
         self.halted: bool = False
         self.halt_reason: str = ""
+        self._feed_stale: bool = False
+        self._network_blocked: bool = False
         self._pending_entry_order_id: Optional[str] = None
         self._pending_signal: Optional[tuple[Signal, str, datetime]] = None
 
     def close(self) -> None:
         if SignalEngine._active_instance is self:
             SignalEngine._active_instance = None
+
+    def notify_stale_feed(self, stale: bool = True) -> None:
+        """Mark market feed as stale or healthy."""
+        self._feed_stale = stale
+        logger.warning(f"Feed staleness updated: {stale}")
+
+    def notify_network_failure(self, failed: bool = True) -> None:
+        """Record network failure: blocks new entries while preserving resting stops."""
+        self._network_blocked = failed
+        if failed:
+            logger.critical("Network failure recorded: blocking new entries, stops preserved.")
+
+    def notify_reconnected(self) -> None:
+        """Handle network reconnection: reconciles state before unblocking."""
+        logger.info("Network reconnected: reconciling state before unblocking.")
+        if self.reconciler is not None:
+            res = self.reconciler.reconcile()
+            if not res.safe_mode:
+                self._network_blocked = False
+        else:
+            self._network_blocked = False
 
     def _get_open_position(self) -> Optional[Position]:
         """Fetch current open position from broker or DB."""
@@ -87,8 +112,15 @@ class SignalEngine:
 
     def process_candle(self, candle: pd.Series) -> None:
         """Process one closed candle through the entire strategy and execution pipeline."""
+        if self.reconciler is not None:
+            self.reconciler.check_can_trade()
+
         if self.halted:
             logger.error(f"Engine is halted ({self.halt_reason}); ignoring candle")
+            return
+
+        if self._network_blocked:
+            logger.critical("Network is blocked; skipping candle")
             return
 
         candle_time = to_ist(candle.name) if isinstance(candle.name, datetime) else to_ist(candle.get("timestamp"))
@@ -157,6 +189,11 @@ class SignalEngine:
 
         # 5. Queue signal for next candle's open (same day only)
         if sig is not Signal.HOLD:
+            if self._feed_stale:
+                logger.warning("Market feed is stale; skipping new entry signal generation")
+                self.skipped_signals["FEED_STALE"] += 1
+                return
+
             sig_id = generate_signal_id(self.mode, self.config.symbol, self.config.timeframe, candle_time, sig)
             # Deduplication check in-memory and DB
             if sig_id in self._seen_signal_ids or (self.db is not None and self.db.get_orders(mode=self.mode, signal_id=sig_id)):

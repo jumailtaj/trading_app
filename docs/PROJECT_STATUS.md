@@ -1,5 +1,5 @@
 # PROJECT STATUS
-Last updated: 2026-09-25, after Phase E closeout
+Last updated: 2026-09-25, after Phase F closeout
 
 ## Environment
 Python: 3.11.9  pandas: 2.2.2  numpy: 1.26.4  pytest: 9.1.1  OS: Windows 11 (win32, CPython MSC v.1938 64-bit)
@@ -8,11 +8,11 @@ Additional packages: kiteconnect 5.2.2 INSTALLED  streamlit NOT INSTALLED
 
 ## Git State
 Current branch: main
-Branches: main, phase-a-baseline, phase-b-backtest, phase-c-hardening, phase-d-paper, phase-e-kite-broker
-Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit 1726fef), phase-c (commit 6ae1f2b), phase-d (commit ee685a8), phase-e (commit pending merge)
-Latest commit on main: ee685a8 feat(phase-d): broker layer, market data, signal engine, and paper trading
+Branches: main, phase-a-baseline, phase-b-backtest, phase-c-hardening, phase-d-paper, phase-e-kite-broker, phase-f-safety
+Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit 1726fef), phase-c (commit 6ae1f2b), phase-d (commit ee685a8), phase-e (commit be8f318), phase-f (commit pending merge)
+Latest commit on main: be8f318 feat(phase-e): Kite broker adapter, order types, and live safety gates
 Working tree clean: Y
-Pushed to remote: Y (origin/main and tags pushed up to phase-e)
+Pushed to remote: Y (origin/main and tags pushed up to phase-f)
 Remote (origin): https://github.com/jumailtaj/trading_app.git
 
 ## Phase Completion Table
@@ -23,35 +23,35 @@ Remote (origin): https://github.com/jumailtaj/trading_app.git
 | B     | DONE        | phase-b-backtest    | phase-b           | 1726fef | 224 / 0           | Y        | 2026-09-25 |
 | C     | DONE        | phase-c-hardening   | phase-c           | 6ae1f2b | 243 / 0           | Y        | 2026-09-25 |
 | D     | DONE        | phase-d-paper       | phase-d           | ee685a8 | 265 / 0           | Y        | 2026-09-25 |
-| E     | DONE        | phase-e-kite-broker | phase-e           | pending | 280 / 0           | Y        | 2026-09-25 |
-| F     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
+| E     | DONE        | phase-e-kite-broker | phase-e           | be8f318 | 280 / 0           | Y        | 2026-09-25 |
+| F     | DONE        | phase-f-safety      | phase-f           | pending | 295 / 0           | Y        | 2026-09-25 |
 | G     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
 | H     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
 
 ## Current Phase
-Phase F — Live-only Risk Protections, Safety Latches, and Process Safeguards (NOT STARTED).
-Depends on Phase E gate closure (complete).
+Phase G — Streamlit UI, Live Monitoring, Controls, Dashboard (NOT STARTED).
+Depends on Phase F gate closure (complete).
 
 ## Parity Verification (Gate D Criterion)
 - **Backtester vs. SignalEngine + PaperBroker:** Verified on identical candle series in `test_parity_backtest_vs_paper_engine`.
 - Results: 100% identical trades (Symbol TEST, Qty 500, Entry 09:30 @ 100.0, Exit 09:50 @ 105.0, PnL Rs. 2,500.0).
 
-## Mutation Testing Results (Safety Guards with Teeth - Phase E)
-1. **Live gate: disabled -> no kite.place_order call:**
-   - Mutation: Commented out `self._check_live_allowed()` in `KiteBroker.place_order`.
-   - Verified: `test_live_disabled_place_order_never_calls_kite` failed with `Failed: DID NOT RAISE RuntimeError`.
+## Mutation Testing Results (Safety Guards with Teeth - Phase F)
+1. **Emergency stop does NOT cancel protective stops (H5):**
+   - Mutation: Bypassed purpose check in `EmergencyStop.activate` to cancel all orders including stops.
+   - Verified: `test_emergency_stop_does_not_cancel_protective_stops` failed with `AssertionError: assert 'STOP_BID_123' not in ['STOP_BID_123']`.
    - Restored: Passed.
-2. **IP rejection non-retried:**
-   - Mutation: Injected retry loop upon catching IP error in `KiteBroker.place_order`.
-   - Verified: `test_ip_rejection_is_critical_and_non_retried` failed with `AssertionError: assert 2 == 1`.
+2. **Second live engine refuses (H4):**
+   - Mutation: Removed fresh-lock age and PID check in `InstanceGuard.acquire`.
+   - Verified: `test_second_live_engine_refuses_start` failed with `Failed: DID NOT RAISE RuntimeError`.
    - Restored: Passed.
-3. **Stop failure -> UNPROTECTED + halt:**
-   - Mutation: Commented out `self.halted = True` on stop placement failure in `SignalEngine`.
-   - Verified: `test_stop_fails_twice_marks_unprotected_and_halts` failed with `AssertionError: assert False is True`.
+3. **Kill switch requires confirmation token:**
+   - Mutation: Removed token check in `Database.clear_kill_switch`.
+   - Verified: `test_kill_switch_requires_confirmation_token_to_clear` failed with `Failed: DID NOT RAISE ValueError`.
    - Restored: Passed.
-4. **H1 exit race: stop-cancel-before-exit:**
-   - Mutation: Bypassed stop cancellation in `SignalEngine._execute_exit`.
-   - Verified: `test_stop_fills_during_cancel_skips_exit` failed with `AssertionError: assert 1 == 0` (unwanted exit placed).
+4. **Mismatch -> SAFE MODE (no new orders):**
+   - Mutation: Removed `if self.safe_mode: raise ...` gate in `Reconciler.check_can_trade`.
+   - Verified: `test_position_mismatch_triggers_safe_mode` failed with `Failed: DID NOT RAISE RuntimeError`.
    - Restored: Passed.
 
 ## Open Decisions / Blockers
@@ -60,10 +60,10 @@ Depends on Phase E gate closure (complete).
 |-----|--------------------|-------|-------------|
 | OD1 | Kite plan: Connect (data) or Personal (no data)? | User | Resolved: Connect plan confirmed by user |
 | OD2 | Order types for entry/exit/stop | User | Resolved: MARKET entry/exit, SL-M stop confirmed and documented in README.md |
-| OD3 | Static IP registered in Zerodha developer console? | User | Phase F/Live run |
+| OD3 | Static IP registered in Zerodha developer console? | User | Phase H / live run |
 | OD4 | Does `algo_id` field need to be set for retail API orders? | Agent | Resolved: Not required for retail API |
 | OD5 | Kite `tag` field length limit | Agent | Resolved: Max 20 chars; tag=signal_id[:20] verified |
-| OD8 | Real 5-minute OHLCV CSV file | User | Phase B spot-check (deferred to Phase F/Live run) |
+| OD8 | Real 5-minute OHLCV CSV file | User | Phase B spot-check (deferred to Phase H / live run) |
 
 ## Known Deviations From Master Plan
 
