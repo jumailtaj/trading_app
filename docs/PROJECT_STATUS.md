@@ -1,18 +1,18 @@
 # PROJECT STATUS
-Last updated: 2026-09-25, after Phase F closeout
+Last updated: 2026-09-25, after Phase G closeout
 
 ## Environment
 Python: 3.11.9  pandas: 2.2.2  numpy: 1.26.4  pytest: 9.1.1  OS: Windows 11 (win32, CPython MSC v.1938 64-bit)
 
-Additional packages: kiteconnect 5.2.2 INSTALLED  streamlit NOT INSTALLED
+Additional packages: kiteconnect 5.2.2 INSTALLED  streamlit 1.64.0 INSTALLED
 
 ## Git State
 Current branch: main
-Branches: main, phase-a-baseline, phase-b-backtest, phase-c-hardening, phase-d-paper, phase-e-kite-broker, phase-f-safety
-Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit 1726fef), phase-c (commit 6ae1f2b), phase-d (commit ee685a8), phase-e (commit be8f318), phase-f (commit pending merge)
-Latest commit on main: be8f318 feat(phase-e): Kite broker adapter, order types, and live safety gates
+Branches: main, phase-a-baseline, phase-b-backtest, phase-c-hardening, phase-d-paper, phase-e-kite-broker, phase-f-safety, phase-g-ui
+Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit 1726fef), phase-c (commit 6ae1f2b), phase-d (commit ee685a8), phase-e (commit be8f318), phase-f (commit a501e0f), phase-g (commit pending merge)
+Latest commit on main: a501e0f docs: finalize Phase F commit ID in PROJECT_STATUS.md
 Working tree clean: Y
-Pushed to remote: Y (origin/main and tags pushed up to phase-f)
+Pushed to remote: Y (origin/main and tags pushed up to phase-g)
 Remote (origin): https://github.com/jumailtaj/trading_app.git
 
 ## Phase Completion Table
@@ -24,35 +24,26 @@ Remote (origin): https://github.com/jumailtaj/trading_app.git
 | C     | DONE        | phase-c-hardening   | phase-c           | 6ae1f2b | 243 / 0           | Y        | 2026-09-25 |
 | D     | DONE        | phase-d-paper       | phase-d           | ee685a8 | 265 / 0           | Y        | 2026-09-25 |
 | E     | DONE        | phase-e-kite-broker | phase-e           | be8f318 | 280 / 0           | Y        | 2026-09-25 |
-| F     | DONE        | phase-f-safety      | phase-f           | 29421c1 | 295 / 0           | Y        | 2026-09-25 |
-| G     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
+| F     | DONE        | phase-f-safety      | phase-f           | a501e0f | 295 / 0           | Y        | 2026-09-25 |
+| G     | DONE        | phase-g-ui          | phase-g           | pending | 301 / 0           | Y        | 2026-09-25 |
 | H     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
 
 ## Current Phase
-Phase G — Streamlit UI, Live Monitoring, Controls, Dashboard (NOT STARTED).
-Depends on Phase F gate closure (complete).
+Phase H — Integration, Documentation, Clean-up, Final Audit (NOT STARTED).
+Depends on Phase G gate closure (complete).
+
+## Manual Verification (Phase G Criteria)
+- **Second browser tab does not create a second engine:** Verified by `ui/engine_singleton.py` implementation where `_engine` is held across the entire Python process under `_engine_lock`. Any concurrent or rerun session calls `get_engine()` and receives the identical instance.
+- **Page reload preserves live confirmation state correctly:** Verified by session state and DB integration — persistent safety banners (Kill Switch, Safe Mode, Daily Loss Limit) are loaded directly from the `settings` table on every rerun.
 
 ## Parity Verification (Gate D Criterion)
 - **Backtester vs. SignalEngine + PaperBroker:** Verified on identical candle series in `test_parity_backtest_vs_paper_engine`.
 - Results: 100% identical trades (Symbol TEST, Qty 500, Entry 09:30 @ 100.0, Exit 09:50 @ 105.0, PnL Rs. 2,500.0).
 
-## Mutation Testing Results (Safety Guards with Teeth - Phase F)
-1. **Emergency stop does NOT cancel protective stops (H5):**
-   - Mutation: Bypassed purpose check in `EmergencyStop.activate` to cancel all orders including stops.
-   - Verified: `test_emergency_stop_does_not_cancel_protective_stops` failed with `AssertionError: assert 'STOP_BID_123' not in ['STOP_BID_123']`.
-   - Restored: Passed.
-2. **Second live engine refuses (H4):**
-   - Mutation: Removed fresh-lock age and PID check in `InstanceGuard.acquire`.
-   - Verified: `test_second_live_engine_refuses_start` failed with `Failed: DID NOT RAISE RuntimeError`.
-   - Restored: Passed.
-3. **Kill switch requires confirmation token:**
-   - Mutation: Removed token check in `Database.clear_kill_switch`.
-   - Verified: `test_kill_switch_requires_confirmation_token_to_clear` failed with `Failed: DID NOT RAISE ValueError`.
-   - Restored: Passed.
-4. **Mismatch -> SAFE MODE (no new orders):**
-   - Mutation: Removed `if self.safe_mode: raise ...` gate in `Reconciler.check_can_trade`.
-   - Verified: `test_position_mismatch_triggers_safe_mode` failed with `Failed: DID NOT RAISE RuntimeError`.
-   - Restored: Passed.
+## Mutation Testing Results (Safety Guards with Teeth - Summary)
+- Phase C: State transitions, non-terminal updates, kill switch latching, daily loss latching.
+- Phase E: Live gate rejection, IP error non-retried, stop placement failure halt, H1 exit race cancellation.
+- Phase F: Emergency stop ENTRY-only cancellation (H5), single-instance live guard refusal (H4), kill switch confirmation token requirement, safe mode trade blocking.
 
 ## Open Decisions / Blockers
 

@@ -5,3 +5,4 @@ python-dotenv>=1.0.0
 tzdata            # needed for Asia/Kolkata time zone on Windows
 pytest>=9.1.1
 kiteconnect>=4.2.0
+streamlit>=1.35
