@@ -1,5 +1,5 @@
 # PROJECT STATUS
-Last updated: 2026-09-25, after Phase B closeout
+Last updated: 2026-09-25, after Phase C closeout
 
 ## Environment
 Python: 3.11.9  pandas: 2.2.2  numpy: 1.26.4  pytest: 9.1.1  OS: Windows 11 (win32, CPython MSC v.1938 64-bit)
@@ -8,11 +8,11 @@ Additional packages: kiteconnect NOT INSTALLED  streamlit NOT INSTALLED
 
 ## Git State
 Current branch: main
-Branches: main, phase-a-baseline, phase-b-backtest
-Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit pending merge)
-Latest commit on main: 0f434b5 docs: record pushed status in PROJECT_STATUS.md
+Branches: main, phase-a-baseline, phase-b-backtest, phase-c-hardening
+Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit 1726fef), phase-c (commit pending merge)
+Latest commit on main: 1726fef docs: close Phase B and initialize Phase C in PROJECT_STATUS.md
 Working tree clean: Y
-Pushed to remote: Y (origin/main and tags up to phase-a pushed; phase-b to be pushed upon gate)
+Pushed to remote: Y (origin/main and tags pushed up to phase-c)
 Remote (origin): https://github.com/jumailtaj/trading_app.git
 
 ## Phase Completion Table
@@ -20,8 +20,8 @@ Remote (origin): https://github.com/jumailtaj/trading_app.git
 | Phase | Status      | Branch            | Tag               | Commit  | Tests (pass/fail) | Gate Met | Date       |
 |-------|-------------|-------------------|-------------------|---------|-------------------|----------|------------|
 | A     | DONE        | phase-a-baseline  | phase-a (58e4ae1) | 58e4ae1 | 213 / 0           | Y        | 2026-09-25 |
-| B     | DONE        | phase-b-backtest  | phase-b           | 59f048c | 224 / 0           | Y        | 2026-09-25 |
-| C     | IN PROGRESS | phase-c-hardening | —                 | —       | —                 | —        | —          |
+| B     | DONE        | phase-b-backtest  | phase-b           | 1726fef | 224 / 0           | Y        | 2026-09-25 |
+| C     | DONE        | phase-c-hardening | phase-c           | 0f6bf07 | 243 / 0           | Y        | 2026-09-25 |
 | D     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
 | E     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
 | F     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
@@ -29,18 +29,8 @@ Remote (origin): https://github.com/jumailtaj/trading_app.git
 | H     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
 
 ## Current Phase
-Phase C — Domain Hardening (IN PROGRESS on `phase-c-hardening`).
-Tasks:
-1. `models.py`: Add `LAPSED`, `PENDING`, `TRIGGER_PENDING` to `OrderStatus`. Update `TERMINAL_STATUSES` and `NON_TERMINAL_STATUSES`. Add `PositionProtection` enum and `Position.protection` property. Implement `Order.transition_to(...)`.
-2. `utils/signal_id.py`: Deterministic SHA256 `signal_id` generator.
-3. `db.py`: Update CHECK constraints. Add `UNIQUE (mode, signal_id, purpose)` on `orders`. Add `schema_version` table (v1). Add `count_entries_today()`, `get_unresolved_orders()`, `get_unprotected_live_positions()`. Support persistent kill switch and daily loss latch in settings.
-4. `trading/risk_manager.py`: Accept `db: Optional[Database] = None`. Enforce check priority: kill switch -> trading window -> daily loss latch -> max trades -> quantity.
-5. `tests/test_safety.py` & unit tests in `tests/test_db.py`, `tests/test_risk_manager.py`.
-6. Mutation testing on 4 safety guards.
-
-## Next Phase
-Phase D — Broker Layer, Market Data, Engine, Paper Trading.
-Depends on Phase C gate closure.
+Phase D — Broker Layer, Market Data, Engine, Paper Trading (NOT STARTED).
+Depends on Phase C gate closure (complete).
 
 ## Open Decisions / Blockers
 
