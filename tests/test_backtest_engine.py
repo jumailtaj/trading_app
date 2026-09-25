@@ -15,6 +15,7 @@ from strategy.ema_strategy import EMACrossoverStrategy
 from tests.conftest import ist
 from tests.helpers import BUY, HOLD, SELL, SESSION, ScriptedStrategy, candles, cfg, flat, random_walk, run, session
 from utils.charges import ChargesConfig, estimate_charges
+from utils.timeutil import IST
 
 DAY = (2026, 9, 23)
 
@@ -366,6 +367,51 @@ def test_assumptions_are_listed_and_charges_are_labelled_estimated():
     res = run(candles(RISE), {3: BUY, 7: SELL})
     text = " ".join(res.assumptions)
     assert "NEXT candle's open" in text and "ESTIMATES" in text and "STOP is assumed to hit first" in text
+
+
+def test_signal_expires_if_next_candle_is_not_exactly_one_timeframe_later():
+    part1_idx = pd.date_range("2026-09-23 09:15", periods=4, freq="5min", tz=IST)
+    part2_idx = pd.date_range("2026-09-23 10:30", periods=4, freq="5min", tz=IST)
+    idx = part1_idx.append(part2_idx)
+    rows = [flat(100.0)] * len(idx)
+    df = pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=idx, dtype=float)
+    df["volume"] = 1000
+    res = run(df, {3: BUY})
+    assert len(res.trades) == 0
+    assert res.skipped_signals.get("GAP_SIGNAL_EXPIRED") == 1
+
+
+def test_candles_outside_market_hours_are_filtered():
+    part1_idx = pd.date_range("2026-09-23 03:00", periods=2, freq="5min", tz=IST)
+    part2_idx = pd.date_range("2026-09-23 09:15", periods=10, freq="5min", tz=IST)
+    idx = part1_idx.append(part2_idx)
+    rows = [flat(100.0)] * len(idx)
+    df = pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=idx, dtype=float)
+    df["volume"] = 1000
+    res = run(df, {3: BUY, 7: SELL})
+    assert res.candles == 10
+    assert all(c.time() >= time(9, 15) and c.time() < time(15, 30) for c in res.equity_curve.index)
+
+
+def test_wrong_timeframe_raises_backtest_data_error():
+    idx = pd.date_range("2026-09-23 09:15", periods=10, freq="15min", tz=IST)
+    rows = [flat(100.0)] * len(idx)
+    df = pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=idx, dtype=float)
+    df["volume"] = 1000
+    with pytest.raises(BacktestDataError, match="candle spacing mode is 900s, expected 300s"):
+        run(df, {})
+
+
+def test_gap_count_reported_in_result():
+    idx1 = pd.date_range("2026-09-23 09:15", periods=2, freq="5min", tz=IST)
+    idx2 = pd.date_range("2026-09-23 09:35", periods=2, freq="5min", tz=IST)
+    idx3 = pd.date_range("2026-09-23 10:00", periods=2, freq="5min", tz=IST)
+    idx = idx1.append(idx2).append(idx3)
+    rows = [flat(100.0)] * len(idx)
+    df = pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=idx, dtype=float)
+    df["volume"] = 1000
+    res = run(df, {1: BUY, 3: BUY})
+    assert res.skipped_signals.get("GAP_SIGNAL_EXPIRED") == 2
 
 
 # ============================================================ architecture rule
