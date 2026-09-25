@@ -13,9 +13,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Optional
 
 from config import TradingConfig
+from models import TradingMode
 from utils.timeutil import to_ist
 
 OK = "OK"
@@ -23,6 +24,7 @@ OUTSIDE_TRADING_WINDOW = "OUTSIDE_TRADING_WINDOW"
 DAILY_LOSS_LIMIT = "DAILY_LOSS_LIMIT"
 MAX_TRADES = "MAX_TRADES"
 QUANTITY_ZERO = "QUANTITY_ZERO"
+KILL_SWITCH_ACTIVE = "KILL_SWITCH_ACTIVE"
 
 
 @dataclass(frozen=True)
@@ -33,8 +35,11 @@ class RiskDecision:
 
 
 class RiskManager:
-    def __init__(self, config: TradingConfig):
+    def __init__(self, config: TradingConfig, db: Optional[Any] = None,
+                 mode: TradingMode = TradingMode.BACKTEST):
         self.config = config
+        self.db = db
+        self.mode = mode
         self._loss_halt_day: Optional[date] = None
 
     def position_size(self, entry_price: float) -> int:
@@ -57,20 +62,34 @@ class RiskManager:
                     entries_today: int) -> RiskDecision:
         now = to_ist(when)
         c = self.config
+
+        # 1. Kill switch check (highest priority)
+        if self.db is not None and self.db.is_kill_switch_active(self.mode):
+            return RiskDecision(False, 0, KILL_SWITCH_ACTIVE)
+
+        # 2. Trading window check
         if not (c.trading_start <= now.time() <= c.trading_end):
             return RiskDecision(False, 0, OUTSIDE_TRADING_WINDOW)
 
+        # 3. Daily loss limit check (with DB latch persistence if DB configured)
         today = now.date()
         if self._loss_halt_day is not None and self._loss_halt_day != today:
             self._loss_halt_day = None                       # a new day starts clean
+
+        db_latched = self.db.is_daily_loss_latched(self.mode, today) if self.db is not None else False
         if realized_pnl_today <= -c.max_daily_loss:
             self._loss_halt_day = today
-        if self._loss_halt_day == today:
+            if self.db is not None:
+                self.db.set_daily_loss_latch(self.mode, today, True)
+
+        if self._loss_halt_day == today or db_latched:
             return RiskDecision(False, 0, DAILY_LOSS_LIMIT)
 
+        # 4. Max trades check
         if entries_today >= c.max_trades_per_day:
             return RiskDecision(False, 0, MAX_TRADES)
 
+        # 5. Position sizing check
         qty = self.position_size(entry_price)
         if qty <= 0:
             return RiskDecision(False, 0, QUANTITY_ZERO)

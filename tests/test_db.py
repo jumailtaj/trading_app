@@ -3,11 +3,13 @@ from datetime import date, datetime
 
 import pytest
 
-from db import DatabaseError
+from db import Database, DatabaseError
 from models import (
-    Order, OrderPurpose, OrderStatus, OrderType, Position, Side, Trade, TradingMode,
+    Order, OrderPurpose, OrderStatus, OrderType, Position, PositionProtection,
+    Side, Signal, Trade, TradingMode,
 )
 from tests.conftest import ist
+from utils.signal_id import generate_signal_id
 from utils.timeutil import IST
 
 DAY = date(2026, 9, 23)
@@ -202,3 +204,153 @@ def test_concurrent_inserts_from_threads(db):
     for t in threads: t.start()
     for t in threads: t.join()
     assert len(db.get_orders()) == 150
+
+
+def test_lapsed_is_terminal_and_round_trips_through_db(db):
+    o = order(status=OrderStatus.LAPSED)
+    oid = db.insert_order(o)
+    got = db.get_order(oid)
+    assert got.status is OrderStatus.LAPSED
+    assert got.status.is_terminal is True
+    # Cannot transition out of LAPSED to another state
+    with pytest.raises(DatabaseError, match="already LAPSED"):
+        db.update_order(oid, status=OrderStatus.OPEN)
+
+
+def test_trigger_pending_and_pending_are_non_terminal(db):
+    assert OrderStatus.PENDING.is_terminal is False
+    assert OrderStatus.TRIGGER_PENDING.is_terminal is False
+    o1 = order(status=OrderStatus.PENDING)
+    o2 = order(status=OrderStatus.TRIGGER_PENDING, order_type=OrderType.SL, price=99.0)
+    oid1 = db.insert_order(o1)
+    oid2 = db.insert_order(o2)
+    assert db.get_order(oid1).status is OrderStatus.PENDING
+    assert db.get_order(oid2).status is OrderStatus.TRIGGER_PENDING
+    # Both appear in get_unresolved_orders
+    unresolved = db.get_unresolved_orders(TradingMode.PAPER)
+    unresolved_ids = {u.id for u in unresolved}
+    assert oid1 in unresolved_ids and oid2 in unresolved_ids
+
+
+def test_complete_in_live_mode_requires_broker_order_id_and_fill_price():
+    o = order(mode=TradingMode.LIVE, status=OrderStatus.OPEN)
+    # Transitioning to COMPLETE without broker_order_id and fill_price raises ValueError
+    with pytest.raises(ValueError, match="LIVE order cannot transition to COMPLETE"):
+        o.transition_to(OrderStatus.COMPLETE)
+
+    with pytest.raises(ValueError, match="LIVE order cannot transition to COMPLETE"):
+        o.transition_to(OrderStatus.COMPLETE, broker_order_id="BROKER123")
+
+    with pytest.raises(ValueError, match="LIVE order cannot transition to COMPLETE"):
+        o.transition_to(OrderStatus.COMPLETE, fill_price=100.5)
+
+    # With both provided, it succeeds
+    o.transition_to(OrderStatus.COMPLETE, broker_order_id="BROKER123", fill_price=100.5)
+    assert o.status is OrderStatus.COMPLETE
+    assert o.broker_order_id == "BROKER123"
+    assert o.fill_price == 100.5
+
+
+def test_complete_in_paper_mode_does_not_require_broker_order_id():
+    o = order(mode=TradingMode.PAPER, status=OrderStatus.OPEN)
+    o.transition_to(OrderStatus.COMPLETE)
+    assert o.status is OrderStatus.COMPLETE
+    assert o.broker_order_id is None
+
+
+def test_order_transition_rejects_illegal_state_changes():
+    o = order(status=OrderStatus.CREATED)
+    # CREATED cannot directly jump to COMPLETE
+    with pytest.raises(ValueError, match="illegal order transition"):
+        o.transition_to(OrderStatus.COMPLETE)
+
+    # CREATED -> SUBMITTED is valid
+    o.transition_to(OrderStatus.SUBMITTED, broker_order_id="B1")
+    assert o.status is OrderStatus.SUBMITTED
+
+    # SUBMITTED -> OPEN is valid
+    o.transition_to(OrderStatus.OPEN)
+    assert o.status is OrderStatus.OPEN
+
+    # OPEN -> COMPLETE is valid
+    o.transition_to(OrderStatus.COMPLETE)
+    assert o.status is OrderStatus.COMPLETE
+
+    # Terminal state is idempotent for same status
+    o.transition_to(OrderStatus.COMPLETE)
+    assert o.status is OrderStatus.COMPLETE
+
+    # Terminal state cannot change to any other status
+    with pytest.raises(ValueError, match="cannot transition terminal order"):
+        o.transition_to(OrderStatus.REJECTED)
+
+
+def test_signal_id_unique_constraint_blocks_duplicate_entry_orders(db):
+    sig_id = "test_signal_1234"
+    o1 = order(signal_id=sig_id, purpose=OrderPurpose.ENTRY)
+    db.insert_order(o1)
+
+    # Same mode, signal_id, and purpose must violate UNIQUE constraint
+    o2 = order(signal_id=sig_id, purpose=OrderPurpose.ENTRY)
+    with pytest.raises(Exception):
+        db.insert_order(o2)
+
+    # Same signal_id but different purpose (e.g. EXIT) is allowed
+    o3 = order(signal_id=sig_id, purpose=OrderPurpose.EXIT)
+    oid3 = db.insert_order(o3)
+    assert oid3 is not None
+
+
+def test_schema_version_mismatch_raises(tmp_path):
+    db_path = str(tmp_path / "test_schema.db")
+    db1 = Database(db_path)
+    assert db1.get_setting("nonexistent") is None
+    # Alter version to 2
+    db1._execute("UPDATE schema_version SET version = 2")
+    db1.close()
+
+    # Reopening with version mismatch raises DatabaseError
+    with pytest.raises(DatabaseError, match="Schema is version 2; expected 1"):
+        Database(db_path)
+
+
+def test_unprotected_live_position_flagged_correctly(db):
+    pos_live_unprot = Position(
+        mode=TradingMode.LIVE, symbol="RELIANCE", side=Side.BUY, quantity=10,
+        entry_price=2500.0, entry_time=ist(2026, 9, 23, 10), stop_price=2475.0,
+        stop_order_id=None,
+    )
+    assert pos_live_unprot.protection is PositionProtection.UNPROTECTED
+    db.save_position(pos_live_unprot)
+
+    unprotected = db.get_unprotected_live_positions()
+    assert len(unprotected) == 1
+    assert unprotected[0].symbol == "RELIANCE"
+
+    # Now add stop_order_id
+    pos_live_prot = Position(
+        mode=TradingMode.LIVE, symbol="RELIANCE", side=Side.BUY, quantity=10,
+        entry_price=2500.0, entry_time=ist(2026, 9, 23, 10), stop_price=2475.0,
+        stop_order_id="STOP_ORDER_999",
+    )
+    assert pos_live_prot.protection is PositionProtection.PROTECTED
+    db.save_position(pos_live_prot)
+    assert len(db.get_unprotected_live_positions()) == 0
+
+
+def test_count_entries_today(db):
+    assert db.count_entries_today(TradingMode.PAPER, day=DAY) == 0
+    db.insert_order(order(mode=TradingMode.PAPER, purpose=OrderPurpose.ENTRY, timestamp=ist(2026, 9, 23, 9, 30)))
+    db.insert_order(order(mode=TradingMode.PAPER, purpose=OrderPurpose.ENTRY, timestamp=ist(2026, 9, 23, 10, 30)))
+    db.insert_order(order(mode=TradingMode.PAPER, purpose=OrderPurpose.EXIT, timestamp=ist(2026, 9, 23, 11, 0)))
+    assert db.count_entries_today(TradingMode.PAPER, day=DAY) == 2
+
+
+def test_deterministic_signal_id():
+    t = ist(2026, 9, 23, 9, 30)
+    sig1 = generate_signal_id(TradingMode.LIVE, "INFY", "5minute", t, Signal.BUY)
+    sig2 = generate_signal_id(TradingMode.LIVE, "INFY", "5minute", t, Signal.BUY)
+    sig3 = generate_signal_id(TradingMode.PAPER, "INFY", "5minute", t, Signal.BUY)
+    assert len(sig1) == 16
+    assert sig1 == sig2
+    assert sig1 != sig3

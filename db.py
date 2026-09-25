@@ -15,7 +15,8 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from models import (
-    TERMINAL_STATUSES, Order, OrderPurpose, OrderStatus, OrderType, Position, Side, Trade, TradingMode,
+    NON_TERMINAL_STATUSES, TERMINAL_STATUSES, Order, OrderPurpose, OrderStatus, OrderType,
+    Position, Side, Trade, TradingMode,
 )
 from utils.timeutil import from_iso, now_ist, to_iso
 
@@ -29,6 +30,11 @@ def _enum_check(column: str, enum_cls: type) -> str:
 
 
 SCHEMA = f"""
+CREATE TABLE IF NOT EXISTS schema_version (
+    version     INTEGER PRIMARY KEY,
+    applied_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL,
@@ -49,7 +55,8 @@ CREATE TABLE IF NOT EXISTS orders (
     status           TEXT NOT NULL {_enum_check('status', OrderStatus)},
     fill_price       REAL,
     timestamp        TEXT NOT NULL,
-    updated_at       TEXT NOT NULL
+    updated_at       TEXT NOT NULL,
+    UNIQUE (mode, signal_id, purpose)
 );
 CREATE INDEX IF NOT EXISTS idx_orders_signal ON orders (signal_id);
 CREATE INDEX IF NOT EXISTS idx_orders_broker ON orders (broker_order_id);
@@ -117,6 +124,17 @@ class Database:
             if path != ":memory:":
                 self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(SCHEMA)
+            cur = self._conn.execute("SELECT version FROM schema_version LIMIT 1")
+            row = cur.fetchone()
+            if row is None:
+                self._conn.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                    (1, to_iso(now_ist())),
+                )
+            elif row[0] != 1:
+                raise DatabaseError(
+                    f"Schema is version {row[0]}; expected 1. Delete the DB to start fresh."
+                )
             self._conn.commit()
 
     def close(self) -> None:
@@ -145,6 +163,18 @@ class Database:
     def get_setting(self, key: str, default: Any = None) -> Any:
         rows = self._query("SELECT value FROM settings WHERE key = ?", (key,))
         return json.loads(rows[0]["value"]) if rows else default
+
+    def is_kill_switch_active(self, mode: TradingMode) -> bool:
+        return bool(self.get_setting(f"kill_switch:{mode.value}", False))
+
+    def set_kill_switch(self, mode: TradingMode, active: bool = True) -> None:
+        self.set_setting(f"kill_switch:{mode.value}", active)
+
+    def is_daily_loss_latched(self, mode: TradingMode, day: date) -> bool:
+        return bool(self.get_setting(f"daily_loss_halt:{mode.value}:{day.isoformat()}", False))
+
+    def set_daily_loss_latch(self, mode: TradingMode, day: date, latched: bool = True) -> None:
+        self.set_setting(f"daily_loss_halt:{mode.value}:{day.isoformat()}", latched)
 
     # ---- orders --------------------------------------------------------------------
     @staticmethod
@@ -212,6 +242,26 @@ class Database:
         rows = self._query(f"SELECT * FROM orders {where} ORDER BY id", tuple(params))
         return [self._order_from_row(r) for r in rows]
 
+    def count_entries_today(self, mode: TradingMode, symbol: Optional[str] = None,
+                            day: Optional[date] = None) -> int:
+        target_day = day or now_ist().date()
+        clauses = ["mode = ?", "purpose = 'ENTRY'", "substr(timestamp, 1, 10) = ?"]
+        params: list[Any] = [mode.value, target_day.isoformat()]
+        if symbol is not None:
+            clauses.append("symbol = ?")
+            params.append(symbol)
+        rows = self._query(f"SELECT COUNT(*) AS count FROM orders WHERE {' AND '.join(clauses)}", tuple(params))
+        return int(rows[0]["count"])
+
+    def get_unresolved_orders(self, mode: TradingMode) -> list[Order]:
+        marks = ",".join("?" * len(NON_TERMINAL_STATUSES))
+        params = (mode.value,) + tuple(s.value for s in NON_TERMINAL_STATUSES)
+        rows = self._query(
+            f"SELECT * FROM orders WHERE mode = ? AND status IN ({marks}) ORDER BY id",
+            params,
+        )
+        return [self._order_from_row(r) for r in rows]
+
     # ---- trades --------------------------------------------------------------------
     @staticmethod
     def _trade_from_row(r: sqlite3.Row) -> Trade:
@@ -255,6 +305,9 @@ class Database:
         )
         return float(rows[0]["total"])
 
+    def realized_pnl_today(self, mode: TradingMode, day: date) -> float:
+        return self.realized_pnl(mode, day)
+
     # ---- positions -----------------------------------------------------------------
     @staticmethod
     def _position_from_row(r: sqlite3.Row) -> Position:
@@ -282,6 +335,13 @@ class Database:
 
     def get_open_positions(self, mode: TradingMode) -> list[Position]:
         rows = self._query("SELECT * FROM positions WHERE mode = ? ORDER BY symbol", (mode.value,))
+        return [self._position_from_row(r) for r in rows]
+
+    def get_unprotected_live_positions(self) -> list[Position]:
+        rows = self._query(
+            "SELECT * FROM positions WHERE mode = ? AND (stop_order_id IS NULL OR stop_order_id = '') ORDER BY symbol",
+            (TradingMode.LIVE.value,),
+        )
         return [self._position_from_row(r) for r in rows]
 
     def delete_position(self, mode: TradingMode, symbol: str) -> bool:
