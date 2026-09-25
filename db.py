@@ -315,7 +315,7 @@ class Database:
         )
 
     def get_logs(self, limit: int = 200, min_level: str = "DEBUG") -> list[dict]:
-        floor = _LEVELS[min_level.upper()]
+        floor = _LEVELS.get(min_level.upper(), 0)
         levels = tuple(name for name, n in _LEVELS.items() if n >= floor)
         marks = ",".join("?" * len(levels))
         rows = self._query(
