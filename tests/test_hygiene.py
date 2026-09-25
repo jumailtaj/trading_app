@@ -37,3 +37,17 @@ def test_real_order_methods_raise():
     kc = MockKiteConnect()
     with pytest.raises(RuntimeError, match="CRITICAL: Real place_order reached during tests!"):
         kc.place_order()
+
+
+def test_paper_broker_ast_guard():
+    """Verify via AST that trading/paper_broker.py never imports kiteconnect."""
+    import ast
+    path = pathlib.Path("trading/paper_broker.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name != "kiteconnect", "paper_broker.py must never import kiteconnect"
+        elif isinstance(node, ast.ImportFrom):
+            assert node.module != "kiteconnect", "paper_broker.py must never import kiteconnect"
+
