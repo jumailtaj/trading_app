@@ -1,64 +1,57 @@
 # PROJECT STATUS
-Last updated: 2026-09-25, after Phase D closeout
+Last updated: 2026-09-25, after Phase E closeout
 
 ## Environment
 Python: 3.11.9  pandas: 2.2.2  numpy: 1.26.4  pytest: 9.1.1  OS: Windows 11 (win32, CPython MSC v.1938 64-bit)
 
-Additional packages: kiteconnect NOT INSTALLED  streamlit NOT INSTALLED
+Additional packages: kiteconnect 5.2.2 INSTALLED  streamlit NOT INSTALLED
 
 ## Git State
 Current branch: main
-Branches: main, phase-a-baseline, phase-b-backtest, phase-c-hardening, phase-d-paper
-Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit 1726fef), phase-c (commit 6ae1f2b), phase-d (commit pending merge)
-Latest commit on main: 6ae1f2b feat(phase-c): domain hardening, state machine transitions, and persistent safety guards
+Branches: main, phase-a-baseline, phase-b-backtest, phase-c-hardening, phase-d-paper, phase-e-kite-broker
+Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit 1726fef), phase-c (commit 6ae1f2b), phase-d (commit ee685a8), phase-e (commit pending merge)
+Latest commit on main: ee685a8 feat(phase-d): broker layer, market data, signal engine, and paper trading
 Working tree clean: Y
-Pushed to remote: Y (origin/main and tags pushed up to phase-d)
+Pushed to remote: Y (origin/main and tags pushed up to phase-e)
 Remote (origin): https://github.com/jumailtaj/trading_app.git
 
 ## Phase Completion Table
 
-| Phase | Status      | Branch            | Tag               | Commit  | Tests (pass/fail) | Gate Met | Date       |
-|-------|-------------|-------------------|-------------------|---------|-------------------|----------|------------|
-| A     | DONE        | phase-a-baseline  | phase-a (58e4ae1) | 58e4ae1 | 213 / 0           | Y        | 2026-09-25 |
-| B     | DONE        | phase-b-backtest  | phase-b           | 1726fef | 224 / 0           | Y        | 2026-09-25 |
-| C     | DONE        | phase-c-hardening | phase-c           | 6ae1f2b | 243 / 0           | Y        | 2026-09-25 |
-| D     | DONE        | phase-d-paper     | phase-d           | pending | 265 / 0           | Y        | 2026-09-25 |
-| E     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
-| F     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
-| G     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
-| H     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
+| Phase | Status      | Branch              | Tag               | Commit  | Tests (pass/fail) | Gate Met | Date       |
+|-------|-------------|---------------------|-------------------|---------|-------------------|----------|------------|
+| A     | DONE        | phase-a-baseline    | phase-a (58e4ae1) | 58e4ae1 | 213 / 0           | Y        | 2026-09-25 |
+| B     | DONE        | phase-b-backtest    | phase-b           | 1726fef | 224 / 0           | Y        | 2026-09-25 |
+| C     | DONE        | phase-c-hardening   | phase-c           | 6ae1f2b | 243 / 0           | Y        | 2026-09-25 |
+| D     | DONE        | phase-d-paper       | phase-d           | ee685a8 | 265 / 0           | Y        | 2026-09-25 |
+| E     | DONE        | phase-e-kite-broker | phase-e           | pending | 280 / 0           | Y        | 2026-09-25 |
+| F     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
+| G     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
+| H     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
 
 ## Current Phase
-Phase E — Kite Integration, Live Broker, Authentication, Safety Latches (NOT STARTED).
-Depends on Phase D gate closure (complete).
+Phase F — Live-only Risk Protections, Safety Latches, and Process Safeguards (NOT STARTED).
+Depends on Phase E gate closure (complete).
 
 ## Parity Verification (Gate D Criterion)
 - **Backtester vs. SignalEngine + PaperBroker:** Verified on identical candle series in `test_parity_backtest_vs_paper_engine`.
-- Results: 100% identical trades:
-  - Symbol: TEST
-  - Quantity: 500
-  - Entry timestamp: 2026-09-23 09:30:00+05:30
-  - Entry price: 100.0
-  - Exit timestamp: 2026-09-23 09:50:00+05:30
-  - Exit price: 105.0
-  - Net PnL: Rs. 2,500.0 (exact match within < 1e-6)
+- Results: 100% identical trades (Symbol TEST, Qty 500, Entry 09:30 @ 100.0, Exit 09:50 @ 105.0, PnL Rs. 2,500.0).
 
-## Mutation Testing Results (Safety Guards with Teeth - Phase D)
-1. **PaperBroker cannot import kiteconnect:**
-   - Mutation: Added `import kiteconnect` to `trading/paper_broker.py`.
-   - Verified: `test_paper_broker_ast_guard` failed with `AssertionError: paper_broker.py must never import kiteconnect`.
+## Mutation Testing Results (Safety Guards with Teeth - Phase E)
+1. **Live gate: disabled -> no kite.place_order call:**
+   - Mutation: Commented out `self._check_live_allowed()` in `KiteBroker.place_order`.
+   - Verified: `test_live_disabled_place_order_never_calls_kite` failed with `Failed: DID NOT RAISE RuntimeError`.
    - Restored: Passed.
-2. **Duplicate signal_id skipped:**
-   - Mutation: Bypassed deduplication check in `SignalEngine.process_candle`.
-   - Verified: `test_duplicate_signal_id_skipped` failed with `assert 0 == 1`.
+2. **IP rejection non-retried:**
+   - Mutation: Injected retry loop upon catching IP error in `KiteBroker.place_order`.
+   - Verified: `test_ip_rejection_is_critical_and_non_retried` failed with `AssertionError: assert 2 == 1`.
    - Restored: Passed.
 3. **Stop failure -> UNPROTECTED + halt:**
-   - Mutation: Commented out `self.halted = True` on stop placement failure.
-   - Verified: `test_entry_with_failed_stop_halts_engine_and_marks_unprotected` failed with `assert False is True`.
+   - Mutation: Commented out `self.halted = True` on stop placement failure in `SignalEngine`.
+   - Verified: `test_stop_fails_twice_marks_unprotected_and_halts` failed with `AssertionError: assert False is True`.
    - Restored: Passed.
-4. **H1 exit race (cancel before exit):**
-   - Mutation: Bypassed stop cancel and filled check in `SignalEngine._execute_exit`.
-   - Verified: `test_stop_fills_during_exit_cancel_does_not_double_sell` failed with `AssertionError: assert 1 == 0` (double-sell detected).
+4. **H1 exit race: stop-cancel-before-exit:**
+   - Mutation: Bypassed stop cancellation in `SignalEngine._execute_exit`.
+   - Verified: `test_stop_fills_during_cancel_skips_exit` failed with `AssertionError: assert 1 == 0` (unwanted exit placed).
    - Restored: Passed.
 
 ## Open Decisions / Blockers
@@ -66,11 +59,11 @@ Depends on Phase D gate closure (complete).
 | ID  | Decision / Blocker | Owner | When needed |
 |-----|--------------------|-------|-------------|
 | OD1 | Kite plan: Connect (data) or Personal (no data)? | User | Resolved: Connect plan confirmed by user |
-| OD2 | Order types for entry/exit/stop (MARKET/MARKET/SL-M recommended) | User | Phase E, task E5 |
-| OD3 | Static IP registered in Zerodha developer console? | User | Phase E start |
-| OD4 | Does `algo_id` field need to be set for retail API orders? | Agent (verify SDK) | Phase E start |
-| OD5 | Kite `tag` field length limit | Agent (verify SDK) | Phase E start |
-| OD8 | Real 5-minute OHLCV CSV file | User | Phase B spot-check (deferred to Phase E) |
+| OD2 | Order types for entry/exit/stop | User | Resolved: MARKET entry/exit, SL-M stop confirmed and documented in README.md |
+| OD3 | Static IP registered in Zerodha developer console? | User | Phase F/Live run |
+| OD4 | Does `algo_id` field need to be set for retail API orders? | Agent | Resolved: Not required for retail API |
+| OD5 | Kite `tag` field length limit | Agent | Resolved: Max 20 chars; tag=signal_id[:20] verified |
+| OD8 | Real 5-minute OHLCV CSV file | User | Phase B spot-check (deferred to Phase F/Live run) |
 
 ## Known Deviations From Master Plan
 
