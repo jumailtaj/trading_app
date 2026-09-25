@@ -13,7 +13,6 @@ from typing import Any, Mapping, Optional
 
 from models import TradingMode
 from utils.logger import register_secret
-from utils.timeutil import IST  # noqa: F401  (re-exported for convenience)
 
 # --- exchange facts / guard rails (edit deliberately) ---------------------------------
 MARKET_OPEN = time(9, 15)
@@ -22,7 +21,6 @@ SUPPORTED_EXCHANGES = ("NSE",)
 SUPPORTED_TIMEFRAMES = {"5minute": 5}  # Kite interval name -> minutes (v1: 5-minute only)
 MAX_RISK_PER_TRADE_PCT = 5.0           # typo guard: 0.5 vs 50
 MAX_SLIPPAGE_PCT = 5.0
-DEFAULT_DB_PATH = "trading_app.db"
 
 
 class ConfigError(ValueError):
