@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 import pytest
 
-from db import Database, DatabaseError
+from db import DatabaseError
 from models import (
     Order, OrderPurpose, OrderStatus, OrderType, Position, Side, Trade, TradingMode,
 )

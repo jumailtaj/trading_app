@@ -9,11 +9,11 @@ import pytest
 
 from backtest.engine import BacktestDataError, Backtester, LookAheadError
 from db import Database
-from models import Signal, TradingMode
+from models import TradingMode
 from strategy.base_strategy import Strategy
 from strategy.ema_strategy import EMACrossoverStrategy
 from tests.conftest import ist
-from tests.helpers import BUY, HOLD, NO_FEES, SELL, SESSION, ScriptedStrategy, candles, cfg, flat, random_walk, run, session
+from tests.helpers import BUY, HOLD, SELL, SESSION, ScriptedStrategy, candles, cfg, flat, random_walk, run, session
 from utils.charges import ChargesConfig, estimate_charges
 
 DAY = (2026, 9, 23)
