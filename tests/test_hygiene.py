@@ -17,8 +17,23 @@ def test_repo_hygiene():
         assert not f.startswith("logs/"), f"Log file {f} is tracked"
 
 def test_kiteconnect_never_imported_in_paper_or_backtest():
-    """If kiteconnect is imported during tests (before Phase E), it's a violation."""
-    assert "kiteconnect" not in sys.modules, "kiteconnect should not be imported in backtest/paper tests"
+    """Verify via AST that kiteconnect is never imported in paper, backtest, or strategy modules."""
+    import ast
+    paths_to_check = [
+        pathlib.Path("backtest/engine.py"),
+        pathlib.Path("backtest/broker.py"),
+        pathlib.Path("trading/paper_broker.py"),
+        pathlib.Path("strategy/ema_strategy.py"),
+    ]
+    for p in paths_to_check:
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert alias.name != "kiteconnect", f"{p} must never import kiteconnect"
+            elif isinstance(node, ast.ImportFrom):
+                assert node.module != "kiteconnect", f"{p} must never import kiteconnect"
+
 
 def test_real_order_methods_raise():
     """R1 guard: real kiteconnect order methods must raise if ever reached in tests."""

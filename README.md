@@ -64,13 +64,20 @@ Deliberate simplification of the suggested tree: `models/models.py` -> `models.p
 * The strategy's fast whole-series signals are spot-checked against one-candle-at-a-time signals on every run;
   a mismatch raises `LookAheadError` instead of producing results.
 
+## Order-Type Decisions (Phase E)
+
+* **Entry Orders:** `MARKET` with automatic market protection (`market_protection=-1`). Ensures instantaneous execution upon candle boundary close and signal confirmation without getting stuck behind order book queues.
+* **Exit Orders (Signal & EOD Square-Off):** `MARKET` with automatic protection (`market_protection=-1`). Ensures immediate position clearance during market turns and mandatory square-off at 15:15 IST.
+* **Protective Stop-Loss Orders:** `SL-M` (Stop-Loss Market, no limit leg). For intraday NSE equities, `SL-M` guarantees fill upon trigger price breach, eliminating gap-through unhedged risk inherent to `SL` (stop-limit). Stop price is rounded to the exchange tick size (0.05).
+* **Tag Deduplication:** Every order transmits `tag=signal_id[:20]` derived from deterministic SHA256 hashes (`mode:symbol:timeframe:closed_candle_iso:signal`), enabling precise reconciliation and idempotent order tracking.
+
 ## Build status
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | structure, config, models, logging, SQLite | done, tested |
-| 2 | strategy interface, EMA 9/21 | done, tested |
-| 3 | backtest engine, simulated broker, metrics, charges (+ the sizing/limit half of the risk manager) | done, tested |
-| 4 | paper trading, live data, paper broker | next |
-| 5-9 | Kite adapter (mock-tested), live-only risk protections, reconciliation, Streamlit UI, integration tests | not started |
-| 10 | paper-trading instructions and the live-readiness checklist | not started |
+| A | Repo hygiene, clean git init, baseline verification | done, tested |
+| B | Backtest correctness, gap signal expiration, market data loader | done, tested |
+| C | Domain hardening, state machine transitions, persistent safety guards | done, tested |
+| D | Broker interface, Replay/Fake feeds, SignalEngine pipeline, parity test | done, tested |
+| E | KiteBroker (mock-tested), live gate, status mapping, order types | in progress |
+| F-H | Live-only risk protections, reconciliation, Streamlit UI | not started |
