@@ -1,5 +1,5 @@
 # PROJECT STATUS
-Last updated: 2026-09-25, after Phase A (gate audit — ONE-TIME BOOTSTRAP)
+Last updated: 2026-09-25, after Phase B closeout
 
 ## Environment
 Python: 3.11.9  pandas: 2.2.2  numpy: 1.26.4  pytest: 9.1.1  OS: Windows 11 (win32, CPython MSC v.1938 64-bit)
@@ -8,20 +8,20 @@ Additional packages: kiteconnect NOT INSTALLED  streamlit NOT INSTALLED
 
 ## Git State
 Current branch: main
-Branches: main, phase-a-baseline
-Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1)
-Latest commit on main: 311fce1 chore(infra): record GitHub remote connection in PROJECT_STATUS.md
+Branches: main, phase-a-baseline, phase-b-backtest
+Tags: handover-phase3 (commit 16eea14), phase-a (commit 58e4ae1), phase-b (commit pending merge)
+Latest commit on main: 0f434b5 docs: record pushed status in PROJECT_STATUS.md
 Working tree clean: Y
-Pushed to remote: Y — origin/main up to date, tags pushed
+Pushed to remote: Y (origin/main and tags up to phase-a pushed; phase-b to be pushed upon gate)
 Remote (origin): https://github.com/jumailtaj/trading_app.git
 
 ## Phase Completion Table
 
 | Phase | Status      | Branch            | Tag               | Commit  | Tests (pass/fail) | Gate Met | Date       |
 |-------|-------------|-------------------|-------------------|---------|-------------------|----------|------------|
-| A     | IN PROGRESS | phase-a-baseline  | phase-a (58e4ae1) | 58e4ae1 | 213 / 0           | N        | 2026-09-25 |
-| B     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
-| C     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
+| A     | DONE        | phase-a-baseline  | phase-a (58e4ae1) | 58e4ae1 | 213 / 0           | Y        | 2026-09-25 |
+| B     | DONE        | phase-b-backtest  | phase-b           | 59f048c | 224 / 0           | Y        | 2026-09-25 |
+| C     | IN PROGRESS | phase-c-hardening | —                 | —       | —                 | —        | —          |
 | D     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
 | E     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
 | F     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
@@ -29,43 +29,29 @@ Remote (origin): https://github.com/jumailtaj/trading_app.git
 | H     | NOT STARTED | —                 | —                 | —       | —                 | —        | —          |
 
 ## Current Phase
-Phase A — IN PROGRESS. Two items remain before Gate A can close:
-
-1. **requirements.txt version pins are wrong for this machine.**
-   `requirements.txt` pins `pandas>=3.0.2` and `numpy>=2.4.4`, but the installed and tested
-   versions are `pandas 2.2.2` and `numpy 1.26.4`. Installing fresh from this file would fail or
-   pull incompatible versions. Must be corrected to match what is actually installed and tested:
-   `pandas>=2.2.2`, `numpy>=1.26.4`.
-
-2. **docs/MASTER_PLAN.md is untracked.**
-   It exists on disk (created in the master-plan response) but has never been committed to git.
-   It must be staged and committed before the working tree is declared clean.
-
-Gate A can only be marked DONE when both of these are fixed and verified:
-- `requirements.txt` pins match installed versions
-- `git status` shows working tree clean (no untracked files)
-- `python -m pytest` still shows 213 passed
-- A6 items (GitHub URL, CI workflow decision) have been asked and answered or explicitly deferred
+Phase C — Domain Hardening (IN PROGRESS on `phase-c-hardening`).
+Tasks:
+1. `models.py`: Add `LAPSED`, `PENDING`, `TRIGGER_PENDING` to `OrderStatus`. Update `TERMINAL_STATUSES` and `NON_TERMINAL_STATUSES`. Add `PositionProtection` enum and `Position.protection` property. Implement `Order.transition_to(...)`.
+2. `utils/signal_id.py`: Deterministic SHA256 `signal_id` generator.
+3. `db.py`: Update CHECK constraints. Add `UNIQUE (mode, signal_id, purpose)` on `orders`. Add `schema_version` table (v1). Add `count_entries_today()`, `get_unresolved_orders()`, `get_unprotected_live_positions()`. Support persistent kill switch and daily loss latch in settings.
+4. `trading/risk_manager.py`: Accept `db: Optional[Database] = None`. Enforce check priority: kill switch -> trading window -> daily loss latch -> max trades -> quantity.
+5. `tests/test_safety.py` & unit tests in `tests/test_db.py`, `tests/test_risk_manager.py`.
+6. Mutation testing on 4 safety guards.
 
 ## Next Phase
-Phase B — Backtest Correctness and Real-Data Readiness.
-Depends on:
-- Phase A gate fully met (DONE)
-- User provides a real 5-minute OHLCV CSV file, OR confirms Kite Connect plan for historical data
-  (will be asked at the start of Phase B, not before)
+Phase D — Broker Layer, Market Data, Engine, Paper Trading.
+Depends on Phase C gate closure.
 
 ## Open Decisions / Blockers
 
 | ID  | Decision / Blocker | Owner | When needed |
 |-----|--------------------|-------|-------------|
-| OD1 | Kite plan: Connect (data) or Personal (no data)? | User | Phase B start |
+| OD1 | Kite plan: Connect (data) or Personal (no data)? | User | Phase D start |
 | OD2 | Order types for entry/exit/stop (MARKET/MARKET/SL-M recommended) | User | Phase E, task E5 |
 | OD3 | Static IP registered in Zerodha developer console? | User | Phase E start |
 | OD4 | Does `algo_id` field need to be set for retail API orders? | Agent (verify SDK) | Phase E start |
 | OD5 | Kite `tag` field length limit | Agent (verify SDK) | Phase E start |
-| OD6 | Private GitHub repo URL | User | Phase A close (A6) |
-| OD7 | Add optional CI workflow (GitHub Actions)? | User | Phase A close (A6) |
-| OD8 | Real 5-minute OHLCV CSV file | User | Phase B, task B-4 |
+| OD8 | Real 5-minute OHLCV CSV file | User | Phase B spot-check (deferred to Phase D/E) |
 
 ## Known Deviations From Master Plan
 
@@ -73,33 +59,13 @@ Depends on:
 |---|-----------|--------|--------|
 | D1 | Project root is `trading_app/trading_app/`, not `trading_app/` | Handover placed code one level deeper in Downloads folder. No files moved. | Accepted |
 | D2 | Python version is 3.11.9, not 3.12.3 as stated in the original prompt | Measured from actual environment | Accepted; docs/MASTER_PLAN.md corrects this |
-| D3 | pandas 2.2.2 / numpy 1.26.4, not 3.0.2 / 2.4.4 as stated in the original prompt | Measured from actual environment | Accepted; requirements.txt must be corrected (Gate A defect) |
-| D4 | `requirements.txt` pinned to wrong versions in Phase A commit | Agent error: Phase A set pins to prompt-claimed versions, not installed versions | Open defect — must fix before Gate A closes |
-| D5 | docs/MASTER_PLAN.md created but not yet committed | Created in master-plan response; git add/commit not yet performed | Open — must fix before Gate A closes |
-| D6 | The original prompt listed `test_backtest_and_risk_code_cannot_reach_a_real_broker_or_network` as failing (209/210) but the test was NOT changed | Root cause: prompt baseline was run from wrong directory. No test was weakened. | Resolved |
+| D3 | pandas 2.2.2 / numpy 1.26.4, not 3.0.2 / 2.4.4 as stated in the original prompt | Measured from actual environment | Accepted; requirements.txt updated in Phase B |
+| D4 | `requirements.txt` pinned to wrong versions in Phase A commit | Corrected in Phase B commit `59f048c` to `pandas>=2.2.2`, `numpy>=1.26.4` | Resolved |
+| D5 | docs/MASTER_PLAN.md created but not yet committed | Committed in `44c9a9a` | Resolved |
+| D6 | The original prompt listed `test_backtest_and_risk_code_cannot_reach_a_real_broker_or_network` as failing (209/210) | Root cause: prompt baseline was run from wrong directory. No test was weakened. | Resolved |
+| D7 | Task B-4 (manual spot-check against real CSV) deferred | User explicitly instructed to proceed without stopping for B-4; will be performed when CSV is provided | Accepted |
 
-## True Phase A Git History (plain statement)
-
-The git history is honest and correctly ordered:
-
-- `16eea14` (tag: `handover-phase3`, 2026-09-25): Pristine handover code + corrected .gitignore ONLY.
-  This is the clean pre-edit snapshot. It was committed first, before any Phase A changes.
-  All handover files are present (34 files). The `.gitignore` addition (WAL/SHM/venv/data entries)
-  is the only change from the literal handover state.
-
-- `a5d1509` through `e12e65e`: Phase A changes (B1 fix, B10 fix, B11 fix, hygiene tests, docs).
-  All committed after `handover-phase3`. The ordering is correct and verifiable by
-  `git diff handover-phase3 HEAD`.
-
-- `58e4ae1` (tag: `phase-a`): Merge commit from `phase-a-baseline` into `main`.
-
-The original prompt's concern about "editing files before git init" was valid during an early
-session where git was not yet installed. That error was corrected: all edits were reverted,
-git was installed, and the sequence was redone in the correct order. The history above is the result.
-
-No rebase, no force-push, no history rewrite has occurred.
-
-## Protocol (established by this bootstrap — in force for every phase from here)
+## Protocol (established by bootstrap — in force for every phase)
 
 RULE 1: At the START of every future phase or session, before touching any file, read this file
 in full. If the phase immediately before the one about to start is not DONE, or its gate was
