@@ -25,7 +25,7 @@ Remote (origin): https://github.com/jumailtaj/trading_app.git
 | D     | DONE        | phase-d-paper       | phase-d           | ee685a8 | 265 / 0           | Y        | 2026-09-25 |
 | E     | DONE        | phase-e-kite-broker | phase-e           | be8f318 | 280 / 0           | Y        | 2026-09-25 |
 | F     | DONE        | phase-f-safety      | phase-f           | a501e0f | 295 / 0           | Y        | 2026-09-25 |
-| G     | DONE        | phase-g-ui          | phase-g           | pending | 301 / 0           | Y        | 2026-09-25 |
+| G     | DONE        | phase-g-ui          | phase-g           | 799202b | 301 / 0           | Y        | 2026-09-25 |
 | H     | NOT STARTED | —                   | —                 | —       | —                 | —        | —          |
 
 ## Current Phase
