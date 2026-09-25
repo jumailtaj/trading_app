@@ -170,6 +170,25 @@ class Database:
     def set_kill_switch(self, mode: TradingMode, active: bool = True) -> None:
         self.set_setting(f"kill_switch:{mode.value}", active)
 
+    def clear_kill_switch(self, mode: TradingMode, confirmation_token: str) -> None:
+        """Clear the kill switch. Requires exact confirmation token 'CONFIRM_CLEAR'."""
+        if confirmation_token != "CONFIRM_CLEAR":
+            raise ValueError(f"Invalid confirmation token. Expected 'CONFIRM_CLEAR', got '{confirmation_token}'")
+        self.set_setting(f"kill_switch:{mode.value}", False)
+
+    def write_instance_lock(self, mode: TradingMode, pid: int, timestamp: Optional[datetime] = None) -> None:
+        """Record or refresh an instance heartbeat lock."""
+        ts = to_iso(timestamp or now_ist())
+        self.set_setting(f"instance_lock:{mode.value}", {"pid": pid, "ts": ts})
+
+    def read_instance_lock(self, mode: TradingMode) -> Optional[dict[str, Any]]:
+        """Read current instance lock info if present."""
+        return self.get_setting(f"instance_lock:{mode.value}", None)
+
+    def delete_instance_lock(self, mode: TradingMode) -> None:
+        """Release the instance lock upon clean shutdown."""
+        self._execute("DELETE FROM settings WHERE key = ?", (f"instance_lock:{mode.value}",))
+
     def is_daily_loss_latched(self, mode: TradingMode, day: date) -> bool:
         return bool(self.get_setting(f"daily_loss_halt:{mode.value}:{day.isoformat()}", False))
 
