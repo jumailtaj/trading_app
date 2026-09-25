@@ -51,20 +51,54 @@ class OrderStatus(Enum):
     The Kite adapter (Phase 5) maps broker status strings onto these. A broker status
     we do not recognise maps to UNKNOWN, which is NOT terminal and must halt trading.
     """
-    CREATED = "CREATED"        # built locally, not sent yet
-    SUBMITTED = "SUBMITTED"    # sent, broker order id may be known, state unverified
-    OPEN = "OPEN"              # broker confirms it is working / pending
-    COMPLETE = "COMPLETE"      # fully filled (terminal)
-    REJECTED = "REJECTED"      # (terminal)
-    CANCELLED = "CANCELLED"    # (terminal)
-    UNKNOWN = "UNKNOWN"        # unrecognised broker state -> fail safe
+    CREATED = "CREATED"                # built locally, not sent yet
+    SUBMITTED = "SUBMITTED"            # sent, broker order id may be known, state unverified
+    PENDING = "PENDING"                # non-terminal interim (exchange received, not yet open)
+    OPEN = "OPEN"                      # broker confirms it is working / pending
+    TRIGGER_PENDING = "TRIGGER_PENDING"  # non-terminal (resting stop order)
+    COMPLETE = "COMPLETE"              # fully filled (terminal)
+    REJECTED = "REJECTED"              # (terminal)
+    CANCELLED = "CANCELLED"            # (terminal)
+    LAPSED = "LAPSED"                  # auto-cancelled by broker/exchange (terminal)
+    UNKNOWN = "UNKNOWN"                # unrecognised broker state -> fail safe
 
     @property
     def is_terminal(self) -> bool:
         return self in TERMINAL_STATUSES
 
 
-TERMINAL_STATUSES = frozenset({OrderStatus.COMPLETE, OrderStatus.REJECTED, OrderStatus.CANCELLED})
+TERMINAL_STATUSES = frozenset({
+    OrderStatus.COMPLETE, OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.LAPSED,
+})
+
+NON_TERMINAL_STATUSES = frozenset({
+    OrderStatus.CREATED, OrderStatus.SUBMITTED, OrderStatus.PENDING, OrderStatus.OPEN,
+    OrderStatus.TRIGGER_PENDING, OrderStatus.UNKNOWN,
+})
+
+
+class PositionProtection(Enum):
+    PROTECTED = "PROTECTED"
+    UNPROTECTED = "UNPROTECTED"
+
+
+LEGAL_ORDER_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
+    OrderStatus.CREATED: frozenset({OrderStatus.SUBMITTED, OrderStatus.REJECTED}),
+    OrderStatus.SUBMITTED: frozenset({
+        OrderStatus.PENDING, OrderStatus.OPEN, OrderStatus.TRIGGER_PENDING,
+        OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.LAPSED,
+    }),
+    OrderStatus.PENDING: frozenset({
+        OrderStatus.OPEN, OrderStatus.TRIGGER_PENDING, OrderStatus.REJECTED,
+        OrderStatus.CANCELLED, OrderStatus.LAPSED,
+    }),
+    OrderStatus.OPEN: frozenset({
+        OrderStatus.COMPLETE, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.LAPSED,
+    }),
+    OrderStatus.TRIGGER_PENDING: frozenset({
+        OrderStatus.OPEN, OrderStatus.COMPLETE, OrderStatus.CANCELLED, OrderStatus.LAPSED,
+    }),
+}
 
 
 def _check_qty(quantity: int) -> None:
@@ -93,6 +127,42 @@ class Order:
         if self.order_type in (OrderType.LIMIT, OrderType.SL, OrderType.SL_M) and self.price is None:
             raise ValueError(f"{self.order_type.value} order needs a price")
         self.timestamp = to_ist(self.timestamp)
+
+    def transition_to(self, new_status: OrderStatus, *, broker_order_id: Optional[str] = None,
+                      fill_price: Optional[float] = None) -> None:
+        """Validate and apply a legal order state transition."""
+        if not isinstance(new_status, OrderStatus):
+            raise TypeError(f"expected OrderStatus, got {type(new_status).__name__}")
+
+        if self.status in TERMINAL_STATUSES:
+            if new_status is self.status:
+                return  # idempotent terminal transition
+            raise ValueError(
+                f"cannot transition terminal order from {self.status.value} to {new_status.value}"
+            )
+
+        if self.status in LEGAL_ORDER_TRANSITIONS:
+            allowed = LEGAL_ORDER_TRANSITIONS[self.status]
+            if new_status not in allowed:
+                raise ValueError(
+                    f"illegal order transition from {self.status.value} to {new_status.value}"
+                )
+        # OrderStatus.UNKNOWN is allowed to transition to any status to assist recovery
+
+        target_broker_id = broker_order_id if broker_order_id is not None else self.broker_order_id
+        target_fill_price = fill_price if fill_price is not None else self.fill_price
+
+        if self.mode is TradingMode.LIVE and new_status is OrderStatus.COMPLETE:
+            if target_broker_id is None or target_fill_price is None:
+                raise ValueError(
+                    "LIVE order cannot transition to COMPLETE without broker_order_id and fill_price"
+                )
+
+        self.status = new_status
+        if broker_order_id is not None:
+            self.broker_order_id = broker_order_id
+        if fill_price is not None:
+            self.fill_price = fill_price
 
 
 @dataclass
@@ -144,3 +214,9 @@ class Position:
                 raise ValueError("long position: target_price must be above entry_price")
             if not long and not self.target_price < self.entry_price:
                 raise ValueError("short position: target_price must be below entry_price")
+
+    @property
+    def protection(self) -> PositionProtection:
+        if self.mode is TradingMode.LIVE and self.stop_order_id is None:
+            return PositionProtection.UNPROTECTED
+        return PositionProtection.PROTECTED

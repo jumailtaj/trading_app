@@ -3,10 +3,13 @@ from datetime import datetime, time, timezone
 
 import pytest
 
+from db import Database
+from models import TradingMode
 from tests.conftest import ist
 from tests.helpers import cfg
 from trading.risk_manager import (
-    DAILY_LOSS_LIMIT, MAX_TRADES, OK, OUTSIDE_TRADING_WINDOW, QUANTITY_ZERO, RiskManager,
+    DAILY_LOSS_LIMIT, KILL_SWITCH_ACTIVE, MAX_TRADES, OK, OUTSIDE_TRADING_WINDOW,
+    QUANTITY_ZERO, RiskManager,
 )
 
 
@@ -106,3 +109,44 @@ def test_check_priority_window_then_loss_then_trades_then_quantity():
     assert check(rm, ist(2026, 9, 23, 8, 0), pnl=-5_000, entries=9, price=1e6).reason == OUTSIDE_TRADING_WINDOW
     assert check(rm, ist(2026, 9, 23, 10, 0), pnl=-5_000, entries=9, price=1e6).reason == DAILY_LOSS_LIMIT
     assert check(RiskManager(cfg(max_trades_per_day=1)), ist(2026, 9, 23, 10, 0), entries=9, price=1e6).reason == MAX_TRADES
+
+
+def test_kill_switch_blocks_entry_before_all_other_checks(db):
+    db.set_kill_switch(TradingMode.LIVE, active=True)
+    rm = RiskManager(cfg(), db=db, mode=TradingMode.LIVE)
+    # Even outside trading window and with normal pnl, kill switch is returned first
+    d = check(rm, ist(2026, 9, 23, 8, 0), pnl=0.0)
+    assert not d.allowed
+    assert d.reason == KILL_SWITCH_ACTIVE
+
+
+def test_kill_switch_survives_risk_manager_restart(db):
+    db.set_kill_switch(TradingMode.LIVE, active=True)
+    # Simulate process restart by instantiating a completely new RiskManager
+    rm_new = RiskManager(cfg(), db=db, mode=TradingMode.LIVE)
+    d = check(rm_new, ist(2026, 9, 23, 10, 0))
+    assert not d.allowed
+    assert d.reason == KILL_SWITCH_ACTIVE
+
+    # Clear kill switch -> allowed
+    db.set_kill_switch(TradingMode.LIVE, active=False)
+    rm_after = RiskManager(cfg(), db=db, mode=TradingMode.LIVE)
+    assert check(rm_after, ist(2026, 9, 23, 10, 0)).allowed
+
+
+def test_daily_loss_latch_survives_risk_manager_restart(db):
+    rm1 = RiskManager(cfg(max_daily_loss=1000.0), db=db, mode=TradingMode.LIVE)
+    d1 = check(rm1, ist(2026, 9, 23, 10, 0), pnl=-1500.0)
+    assert not d1.allowed
+    assert d1.reason == DAILY_LOSS_LIMIT
+
+    # Simulate restart on same day: new RiskManager instance
+    rm2 = RiskManager(cfg(max_daily_loss=1000.0), db=db, mode=TradingMode.LIVE)
+    # Even if pnl reports 0.0 now, the latch in DB must block entry!
+    d2 = check(rm2, ist(2026, 9, 23, 11, 0), pnl=0.0)
+    assert not d2.allowed
+    assert d2.reason == DAILY_LOSS_LIMIT
+
+    # Next day: latch does not block next day
+    d3 = check(rm2, ist(2026, 9, 24, 10, 0), pnl=0.0)
+    assert d3.allowed
