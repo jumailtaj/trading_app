@@ -1,0 +1,6 @@
+# Phase 1-2 dependencies. streamlit and kiteconnect are added in the phases that use them.
+pandas>=2.0
+numpy>=1.24
+python-dotenv>=1.0
+tzdata            # needed for Asia/Kolkata time zone on Windows
+pytest>=8.0

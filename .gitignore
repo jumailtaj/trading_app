@@ -1,0 +1,11 @@
+.env
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+logs/
+__pycache__/
+.pytest_cache/
+.venv/
+.streamlit/secrets.toml
+data/
